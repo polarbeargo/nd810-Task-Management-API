@@ -22,6 +22,25 @@ func NewRegisterHandler(db *gorm.DB, registerService services.RegisterService) *
 }
 
 func (h *RegisterHandler) Registration(c *gin.Context) {
-	// Implement the registration logic here
+	type RegistrationRequest struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=8"`
+	}
+
+	var req RegistrationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := h.registerService.RegisterUser(h.db, req.Email, req.Password)
+	if err != nil {
+		if err == ErrDuplicateUsername {
+			c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
 	c.JSON(http.StatusCreated, gin.H{"message": "user created successfully"})
 }
