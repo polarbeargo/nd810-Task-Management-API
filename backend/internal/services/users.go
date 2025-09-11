@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"task-manager/backend/internal/models"
 
 	"github.com/gofrs/uuid"
@@ -25,8 +24,7 @@ func NewUserService() *UserServiceImpl {
 func (s *UserServiceImpl) GetUserProfileMalicious(db *gorm.DB, userID string) ([]models.User, error) {
 	var user []models.User
 
-	query := fmt.Sprintf("SELECT * FROM users WHERE id = '%s'", userID)
-	result := db.Raw(query).Scan(&user)
+	result := db.Raw("SELECT * FROM users WHERE id = ?", userID).Scan(&user)
 
 	if result.Error != nil {
 		return []models.User{}, result.Error
