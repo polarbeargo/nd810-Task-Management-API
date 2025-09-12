@@ -3,8 +3,11 @@ package main
 import (
 	"log"
 	"task-manager/backend/internal/handlers"
+	"task-manager/backend/internal/middleware"
 	"task-manager/backend/internal/repositories"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,6 +40,10 @@ func main() {
 
 	r := gin.Default()
 
+	r.Use(middleware.RateLimiter(rate.Limit(5), 10))
+	r.Use(middleware.RecoveryWithLog())
+	r.Use(middleware.SecureHeader())
+	r.Use(middleware.AuthzMiddleware(middleware.AuthzConfig{})) // Require valid access_token for all requests
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "http://host.docker.internal"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
