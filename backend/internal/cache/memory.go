@@ -23,12 +23,13 @@ func NewMemoryCache() *MemoryCache {
 	return cache
 }
 
-func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) {
+func (c *MemoryCache) Set(key string, value interface{}, ttl time.Duration) error {
 	expiration := time.Now().Add(ttl)
 	c.store.Store(key, &cacheItem{
 		value:      value,
 		expiration: expiration,
 	})
+	return nil
 }
 
 func (c *MemoryCache) Get(key string) (interface{}, bool) {
@@ -47,11 +48,17 @@ func (c *MemoryCache) Get(key string) (interface{}, bool) {
 	return cacheItem.value, true
 }
 
-func (c *MemoryCache) Delete(key string) {
-	c.store.Delete(key)
+func (c *MemoryCache) Exists(key string) (bool, error) {
+	_, exists := c.Get(key)
+	return exists, nil
 }
 
-func (c *MemoryCache) DeletePattern(pattern string) {
+func (c *MemoryCache) Delete(key string) error {
+	c.store.Delete(key)
+	return nil
+}
+
+func (c *MemoryCache) DeletePattern(pattern string) error {
 	c.store.Range(func(key, value interface{}) bool {
 		keyStr := key.(string)
 		if matchPattern(keyStr, pattern) {
@@ -59,10 +66,12 @@ func (c *MemoryCache) DeletePattern(pattern string) {
 		}
 		return true
 	})
+	return nil
 }
 
-func (c *MemoryCache) Clear() {
+func (c *MemoryCache) Clear() error {
 	c.store = sync.Map{}
+	return nil
 }
 
 func (c *MemoryCache) Stats() map[string]interface{} {
@@ -92,6 +101,11 @@ func (c *MemoryCache) cleanup() {
 			return true
 		})
 	}
+}
+
+func (c *MemoryCache) Close() error {
+	
+	return nil
 }
 
 func matchPattern(text, pattern string) bool {
