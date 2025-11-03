@@ -2,18 +2,6 @@
 
 A sophisticated, enterprise-grade Task Management API, featuring advanced caching, authentication, authorization, and monitoring capabilities.
 
-## Software Stack
-
-- **Language**: Go 1.23
-- **Web Framework**: Gin
-- **Database**: PostgreSQL 15
-- **Cache**: Redis 7
-- **ORM**: GORM
-- **Authentication**: JWT
-- **Testing**: Go built-in testing + Testify
-- **Containerization**: Docker & Docker Compose
-- **Monitoring**: Prometheus & Grafana
-
 ## Quick Start
 ### Automated Setup
 
@@ -647,6 +635,318 @@ classDiagram
     classDef componentClass fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
 
 ```
+## Cache Warming Job/Worker System
+
+```mermaid
+classDiagram
+    class UnifiedCacheManager {
+        -IntegratedCacheWarmer* integratedWarmer
+        -CacheWarmer* legacyWarmer
+        -bool useIntegrated
+        -context.Context ctx
+        +NewUnifiedCacheManager(cache Cache, config *CacheWarmingConfig) *UnifiedCacheManager
+        +Start() error
+        +Stop() error
+        +IsRunning() bool
+        +IsIntegrated() bool
+        +WarmupCache() error
+        +EnqueueWarmupJob(key string, data any, ttl Duration, priority int) error
+        +EnqueueBatchWarmupJob(keys []string, data any, priority int) error
+        +EnqueueScheduledWarmup(key string, data any, ttl Duration, processAt Time, priority int) error
+        +EnqueueEvictionJob(key string, priority int) error
+        +EnqueueValidationJob(key string, expectedData any, priority int) error
+        +GetMetrics() map[string]any
+        +GetQueueSizes() (map[string]int64, error)
+        +GetSystemInfo() map[string]any
+        +HealthCheck() map[string]any
+        +WarmupUserData(userID string, userData any, ttl Duration) error
+        +WarmupBatchUserData(userIDs []string, userDataMap map[string]any, ttl Duration) error
+        +WarmupPopularContent(contentType string, items []any, ttl Duration) error
+        +UpdateConfiguration(newStrategy *WarmupStrategy) error
+        +SchedulePeriodicWarmup(key string, data any, ttl Duration, interval Duration) error
+        -determineMode(config *CacheWarmingConfig, cache Cache) CacheWarmingMode
+    }
+
+    class IntegratedCacheWarmer {
+        -Cache cache
+        -*redis.Client redisClient
+        -*WarmupStrategy strategy
+        -sync.RWMutex mu
+        -bool running
+        -chan stopCh
+        -[]*DistributedCacheWorker distributedWorkers
+        -*WorkerPool localWorkerPool
+        -*JobRouter jobRouter
+        -*JobScheduler scheduler
+        -*PriorityQueue priorityQueue
+        -int64 processedJobs
+        -int64 failedJobs
+        -int64 retryJobs
+        -int64 distributedJobs
+        -int64 localJobs
+        +NewIntegratedCacheWarmer(cache Cache, redisClient *redis.Client, strategy *WarmupStrategy) *IntegratedCacheWarmer
+        +Start() error
+        +Stop() error
+        +EnqueueWarmupJob(key string, data any, ttl Duration, priority int) error
+        +EnqueueBatchWarmupJob(keys []string, data any, priority int) error
+        +EnqueueScheduledWarmup(key string, data any, ttl Duration, processAt Time, priority int) error
+        +GetMetrics() map[string]any
+        +GetQueueSizes() (map[string]int64, error)
+        +WarmupCache() error
+        +IsRunning() bool
+        +routeJob(job DistributedCacheJob) error
+        -enqueueToRedis(job DistributedCacheJob) error
+        -enqueueToLocal(job DistributedCacheJob) error
+    }
+
+    class CacheWarmer {
+        -Cache cache
+        -*WarmupStrategy strategy
+        -sync.RWMutex mu
+        -bool running
+        -chan stopCh
+        -*WorkerPool workerPool
+        -*JobScheduler scheduler
+        -*PriorityQueue priorityQueue
+        +NewCacheWarmer(cache Cache, strategy *WarmupStrategy) *CacheWarmer
+        +AddWarmupJob(job WarmupJob)
+        +Start(ctx Context)
+        +Stop()
+        +WarmCacheManually(ctx Context)
+        +GetStats() map[string]any
+        -warmCache(ctx Context) error
+        -processBatch(ctx Context, jobs []WarmupJob, concurrency int) error
+        -processJob(job WarmupJob) error
+        -shouldWarmup() bool
+    }
+
+    class DistributedCacheWorker {
+        -string id
+        -*IntegratedCacheWarmer warmer
+        -*redis.Client redisClient
+        -chan stopCh
+        -sync.WaitGroup wg
+        -string queueName
+        +start()
+        -processJobs()
+        -moveDelayedJobs(ctx Context)
+        -processImmediateJobs(ctx Context)
+        -executeJob(ctx Context, job *DistributedCacheJob)
+        -handleWarmupJob(ctx Context, job *DistributedCacheJob) error
+        -handleBatchJob(ctx Context, job *DistributedCacheJob) error
+        -handleValidationJob(ctx Context, job *DistributedCacheJob) error
+        -handleEvictionJob(ctx Context, job *DistributedCacheJob) error
+    }
+
+    class WorkerPool {
+        -int workers
+        -chan WarmupJob jobCh
+        -chan JobResult resultCh
+        -Cache cache
+        -context.Context ctx
+        -context.CancelFunc cancel
+        -sync.WaitGroup wg
+        -bool running
+        -sync.RWMutex mu
+        -int64 jobsProcessed
+        -time.Duration totalDuration
+        -int64 errors
+        +NewWorkerPool(workers int, cache Cache) *WorkerPool
+        +Start()
+        +Stop()
+        +SubmitJob(job WarmupJob) bool
+        +SubmitJobs(jobs []WarmupJob) int
+        +GetStats() map[string]any
+        +IsRunning() bool
+        +Resize(newSize int)
+        -worker(id int)
+        -processJob(job WarmupJob) JobResult
+        -resultCollector()
+    }
+
+    class JobRouter {
+        -bool redisAvailable
+        -int localCapacity
+        -string distributedQueue
+        -sync.RWMutex mu
+    }
+
+    class JobScheduler {
+        -*CacheWarmer warmer
+        -*WorkerPool workerPool
+        -*PriorityQueue queue
+        -map[string]*ScheduleTrigger triggers
+        -bool running
+        -context.Context ctx
+        -context.CancelFunc cancel
+        -sync.RWMutex mu
+        -time.Time lastRun
+        -time.Time nextRun
+        -int64 runCount
+        +NewJobScheduler(warmer *CacheWarmer, workerPool *WorkerPool) *JobScheduler
+        +AddIntervalTrigger(name string, interval Duration, condition func() bool)
+        +AddEventTrigger(name string, condition func() bool)
+        +RemoveTrigger(name string)
+        +ScheduleJob(job WarmupJob)
+        +ScheduleJobs(jobs []WarmupJob)
+        +Start()
+        +Stop()
+        +ProcessScheduledJobs() int
+        +GetStats() map[string]any
+        +IsRunning() bool
+        +ClearQueue()
+        -schedulerLoop()
+        -checkTriggers()
+        -extractJobsBatch() []WarmupJob
+    }
+
+    class PriorityQueue {
+        -[]*JobQueue items
+        -sync.RWMutex mu
+        +NewPriorityQueue() *PriorityQueue
+        +Push(job WarmupJob)
+        +Pop() (WarmupJob, bool)
+        +Peek() (WarmupJob, bool)
+        +Len() int
+        +Empty() bool
+        +Clear()
+        +GetJobs() []WarmupJob
+    }
+
+    class WarmupJob {
+        +string Key
+        +any Data
+        +time.Duration TTL
+        +int Priority
+    }
+
+    class DistributedCacheJob {
+        +string ID
+        +CacheJobType Type
+        +map[string]any Payload
+        +int Attempts
+        +int MaxTries
+        +time.Time CreatedAt
+        +time.Time ProcessAt
+        +int Priority
+    }
+
+    class WarmupStrategy {
+        +[]WarmupJob Jobs
+        +int BatchSize
+        +int ConcurrentJobs
+        +time.Duration WarmupInterval
+        +func() bool HealthCheckFunc
+        +bool UseWorkerPool
+        +bool UseScheduler
+    }
+
+    class CacheWarmingConfig {
+        +CacheWarmingMode Mode
+        +*redis.Client RedisClient
+        +*WarmupStrategy Strategy
+        +bool EnableMetrics
+        +bool PreferDistributed
+        +bool LocalFallback
+        +int DistributedThreshold
+        +int MaxRetries
+    }
+
+    class JobQueue {
+        +WarmupJob Job
+        +int Priority
+        +int Index
+    }
+
+    class JobResult {
+        +WarmupJob Job
+        +error Error
+        +time.Duration Duration
+    }
+
+    class ScheduleTrigger {
+        +string Type
+        +time.Duration Interval
+        +func() bool Condition
+    }
+
+    class PriorityQueueHeap {
+        <<interface>>
+        +Len() int
+        +Less(i, j int) bool
+        +Swap(i, j int)
+        +Push(x any)
+        +Pop() any
+    }
+
+    %% Enums and Constants
+    class CacheJobType {
+        <<enumeration>>
+        CacheJobWarmup
+        CacheJobBatch
+        CacheJobEviction
+        CacheJobValidation
+        CacheJobScheduled
+    }
+
+    class CacheWarmingMode {
+        <<enumeration>>
+        ModeAuto
+        ModeLegacy
+        ModeIntegrated
+        ModeLocalOnly
+        ModeDistributed
+    }
+
+    %% Relationships
+    UnifiedCacheManager --> IntegratedCacheWarmer : manages (integrated mode)
+    UnifiedCacheManager --> CacheWarmer : manages (legacy mode)
+    UnifiedCacheManager --> CacheWarmingConfig : configured by
+    
+    IntegratedCacheWarmer --> DistributedCacheWorker : contains multiple
+    IntegratedCacheWarmer --> WorkerPool : uses (local processing)
+    IntegratedCacheWarmer --> JobRouter : routes jobs with
+    IntegratedCacheWarmer --> JobScheduler : schedules with
+    IntegratedCacheWarmer --> PriorityQueue : queues jobs in
+    IntegratedCacheWarmer --> WarmupStrategy : configured by
+    IntegratedCacheWarmer --> DistributedCacheJob : processes
+    
+    CacheWarmer --> WorkerPool : manages
+    CacheWarmer --> JobScheduler : coordinates
+    CacheWarmer --> PriorityQueue : queues jobs
+    CacheWarmer --> WarmupStrategy : uses
+    CacheWarmer --> WarmupJob : processes
+    
+    DistributedCacheWorker --> DistributedCacheJob : processes
+    DistributedCacheWorker --> IntegratedCacheWarmer : reports to
+    
+    WorkerPool --> WarmupJob : processes
+    WorkerPool --> JobResult : produces
+    
+    JobScheduler --> ScheduleTrigger : uses
+    JobScheduler --> CacheWarmer : triggers
+    JobScheduler --> WorkerPool : submits to
+    JobScheduler --> PriorityQueue : manages
+    
+    PriorityQueue --> JobQueue : contains
+    PriorityQueue --> WarmupJob : stores
+    PriorityQueueHeap --> JobQueue : heap operations
+    
+    JobQueue --> WarmupJob : wraps
+    WarmupStrategy --> WarmupJob : contains
+    DistributedCacheJob --> CacheJobType : typed by
+    CacheWarmingConfig --> CacheWarmingMode : configured by
+
+    %% Styling
+    classDef managerClass fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
+    classDef workerClass fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef jobClass fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef componentClass fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    classDef configClass fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    classDef interfaceClass fill:#fff8e1,stroke:#ffc107,stroke-width:2px
+    classDef enumClass fill:#f1f8e9,stroke:#8bc34a,stroke-width:2px
+    
+``` 
 
 ## Sequence Diagrams
 
@@ -1051,319 +1351,6 @@ sequenceDiagram
     AS->>DB: DELETE FROM tokens WHERE refresh_token=?
     AS-->>AH: Token revoked
     AH-->>C: 200 OK {message: "logged out successfully"}
-```
-
-## Cache Warming Job/Worker System
-
-```mermaid
-classDiagram
-    class UnifiedCacheManager {
-        -IntegratedCacheWarmer* integratedWarmer
-        -CacheWarmer* legacyWarmer
-        -bool useIntegrated
-        -context.Context ctx
-        +NewUnifiedCacheManager(cache Cache, config *CacheWarmingConfig) *UnifiedCacheManager
-        +Start() error
-        +Stop() error
-        +IsRunning() bool
-        +IsIntegrated() bool
-        +WarmupCache() error
-        +EnqueueWarmupJob(key string, data any, ttl Duration, priority int) error
-        +EnqueueBatchWarmupJob(keys []string, data any, priority int) error
-        +EnqueueScheduledWarmup(key string, data any, ttl Duration, processAt Time, priority int) error
-        +EnqueueEvictionJob(key string, priority int) error
-        +EnqueueValidationJob(key string, expectedData any, priority int) error
-        +GetMetrics() map[string]any
-        +GetQueueSizes() (map[string]int64, error)
-        +GetSystemInfo() map[string]any
-        +HealthCheck() map[string]any
-        +WarmupUserData(userID string, userData any, ttl Duration) error
-        +WarmupBatchUserData(userIDs []string, userDataMap map[string]any, ttl Duration) error
-        +WarmupPopularContent(contentType string, items []any, ttl Duration) error
-        +UpdateConfiguration(newStrategy *WarmupStrategy) error
-        +SchedulePeriodicWarmup(key string, data any, ttl Duration, interval Duration) error
-        -determineMode(config *CacheWarmingConfig, cache Cache) CacheWarmingMode
-    }
-
-    class IntegratedCacheWarmer {
-        -Cache cache
-        -*redis.Client redisClient
-        -*WarmupStrategy strategy
-        -sync.RWMutex mu
-        -bool running
-        -chan stopCh
-        -[]*DistributedCacheWorker distributedWorkers
-        -*WorkerPool localWorkerPool
-        -*JobRouter jobRouter
-        -*JobScheduler scheduler
-        -*PriorityQueue priorityQueue
-        -int64 processedJobs
-        -int64 failedJobs
-        -int64 retryJobs
-        -int64 distributedJobs
-        -int64 localJobs
-        +NewIntegratedCacheWarmer(cache Cache, redisClient *redis.Client, strategy *WarmupStrategy) *IntegratedCacheWarmer
-        +Start() error
-        +Stop() error
-        +EnqueueWarmupJob(key string, data any, ttl Duration, priority int) error
-        +EnqueueBatchWarmupJob(keys []string, data any, priority int) error
-        +EnqueueScheduledWarmup(key string, data any, ttl Duration, processAt Time, priority int) error
-        +GetMetrics() map[string]any
-        +GetQueueSizes() (map[string]int64, error)
-        +WarmupCache() error
-        +IsRunning() bool
-        +routeJob(job DistributedCacheJob) error
-        -enqueueToRedis(job DistributedCacheJob) error
-        -enqueueToLocal(job DistributedCacheJob) error
-    }
-
-    class CacheWarmer {
-        -Cache cache
-        -*WarmupStrategy strategy
-        -sync.RWMutex mu
-        -bool running
-        -chan stopCh
-        -*WorkerPool workerPool
-        -*JobScheduler scheduler
-        -*PriorityQueue priorityQueue
-        +NewCacheWarmer(cache Cache, strategy *WarmupStrategy) *CacheWarmer
-        +AddWarmupJob(job WarmupJob)
-        +Start(ctx Context)
-        +Stop()
-        +WarmCacheManually(ctx Context)
-        +GetStats() map[string]any
-        -warmCache(ctx Context) error
-        -processBatch(ctx Context, jobs []WarmupJob, concurrency int) error
-        -processJob(job WarmupJob) error
-        -shouldWarmup() bool
-    }
-
-    class DistributedCacheWorker {
-        -string id
-        -*IntegratedCacheWarmer warmer
-        -*redis.Client redisClient
-        -chan stopCh
-        -sync.WaitGroup wg
-        -string queueName
-        +start()
-        -processJobs()
-        -moveDelayedJobs(ctx Context)
-        -processImmediateJobs(ctx Context)
-        -executeJob(ctx Context, job *DistributedCacheJob)
-        -handleWarmupJob(ctx Context, job *DistributedCacheJob) error
-        -handleBatchJob(ctx Context, job *DistributedCacheJob) error
-        -handleValidationJob(ctx Context, job *DistributedCacheJob) error
-        -handleEvictionJob(ctx Context, job *DistributedCacheJob) error
-    }
-
-    class WorkerPool {
-        -int workers
-        -chan WarmupJob jobCh
-        -chan JobResult resultCh
-        -Cache cache
-        -context.Context ctx
-        -context.CancelFunc cancel
-        -sync.WaitGroup wg
-        -bool running
-        -sync.RWMutex mu
-        -int64 jobsProcessed
-        -time.Duration totalDuration
-        -int64 errors
-        +NewWorkerPool(workers int, cache Cache) *WorkerPool
-        +Start()
-        +Stop()
-        +SubmitJob(job WarmupJob) bool
-        +SubmitJobs(jobs []WarmupJob) int
-        +GetStats() map[string]any
-        +IsRunning() bool
-        +Resize(newSize int)
-        -worker(id int)
-        -processJob(job WarmupJob) JobResult
-        -resultCollector()
-    }
-
-    class JobRouter {
-        -bool redisAvailable
-        -int localCapacity
-        -string distributedQueue
-        -sync.RWMutex mu
-    }
-
-    class JobScheduler {
-        -*CacheWarmer warmer
-        -*WorkerPool workerPool
-        -*PriorityQueue queue
-        -map[string]*ScheduleTrigger triggers
-        -bool running
-        -context.Context ctx
-        -context.CancelFunc cancel
-        -sync.RWMutex mu
-        -time.Time lastRun
-        -time.Time nextRun
-        -int64 runCount
-        +NewJobScheduler(warmer *CacheWarmer, workerPool *WorkerPool) *JobScheduler
-        +AddIntervalTrigger(name string, interval Duration, condition func() bool)
-        +AddEventTrigger(name string, condition func() bool)
-        +RemoveTrigger(name string)
-        +ScheduleJob(job WarmupJob)
-        +ScheduleJobs(jobs []WarmupJob)
-        +Start()
-        +Stop()
-        +ProcessScheduledJobs() int
-        +GetStats() map[string]any
-        +IsRunning() bool
-        +ClearQueue()
-        -schedulerLoop()
-        -checkTriggers()
-        -extractJobsBatch() []WarmupJob
-    }
-
-    class PriorityQueue {
-        -[]*JobQueue items
-        -sync.RWMutex mu
-        +NewPriorityQueue() *PriorityQueue
-        +Push(job WarmupJob)
-        +Pop() (WarmupJob, bool)
-        +Peek() (WarmupJob, bool)
-        +Len() int
-        +Empty() bool
-        +Clear()
-        +GetJobs() []WarmupJob
-    }
-
-    class WarmupJob {
-        +string Key
-        +any Data
-        +time.Duration TTL
-        +int Priority
-    }
-
-    class DistributedCacheJob {
-        +string ID
-        +CacheJobType Type
-        +map[string]any Payload
-        +int Attempts
-        +int MaxTries
-        +time.Time CreatedAt
-        +time.Time ProcessAt
-        +int Priority
-    }
-
-    class WarmupStrategy {
-        +[]WarmupJob Jobs
-        +int BatchSize
-        +int ConcurrentJobs
-        +time.Duration WarmupInterval
-        +func() bool HealthCheckFunc
-        +bool UseWorkerPool
-        +bool UseScheduler
-    }
-
-    class CacheWarmingConfig {
-        +CacheWarmingMode Mode
-        +*redis.Client RedisClient
-        +*WarmupStrategy Strategy
-        +bool EnableMetrics
-        +bool PreferDistributed
-        +bool LocalFallback
-        +int DistributedThreshold
-        +int MaxRetries
-    }
-
-    class JobQueue {
-        +WarmupJob Job
-        +int Priority
-        +int Index
-    }
-
-    class JobResult {
-        +WarmupJob Job
-        +error Error
-        +time.Duration Duration
-    }
-
-    class ScheduleTrigger {
-        +string Type
-        +time.Duration Interval
-        +func() bool Condition
-    }
-
-    class PriorityQueueHeap {
-        <<interface>>
-        +Len() int
-        +Less(i, j int) bool
-        +Swap(i, j int)
-        +Push(x any)
-        +Pop() any
-    }
-
-    %% Enums and Constants
-    class CacheJobType {
-        <<enumeration>>
-        CacheJobWarmup
-        CacheJobBatch
-        CacheJobEviction
-        CacheJobValidation
-        CacheJobScheduled
-    }
-
-    class CacheWarmingMode {
-        <<enumeration>>
-        ModeAuto
-        ModeLegacy
-        ModeIntegrated
-        ModeLocalOnly
-        ModeDistributed
-    }
-
-    %% Relationships
-    UnifiedCacheManager --> IntegratedCacheWarmer : manages (integrated mode)
-    UnifiedCacheManager --> CacheWarmer : manages (legacy mode)
-    UnifiedCacheManager --> CacheWarmingConfig : configured by
-    
-    IntegratedCacheWarmer --> DistributedCacheWorker : contains multiple
-    IntegratedCacheWarmer --> WorkerPool : uses (local processing)
-    IntegratedCacheWarmer --> JobRouter : routes jobs with
-    IntegratedCacheWarmer --> JobScheduler : schedules with
-    IntegratedCacheWarmer --> PriorityQueue : queues jobs in
-    IntegratedCacheWarmer --> WarmupStrategy : configured by
-    IntegratedCacheWarmer --> DistributedCacheJob : processes
-    
-    CacheWarmer --> WorkerPool : manages
-    CacheWarmer --> JobScheduler : coordinates
-    CacheWarmer --> PriorityQueue : queues jobs
-    CacheWarmer --> WarmupStrategy : uses
-    CacheWarmer --> WarmupJob : processes
-    
-    DistributedCacheWorker --> DistributedCacheJob : processes
-    DistributedCacheWorker --> IntegratedCacheWarmer : reports to
-    
-    WorkerPool --> WarmupJob : processes
-    WorkerPool --> JobResult : produces
-    
-    JobScheduler --> ScheduleTrigger : uses
-    JobScheduler --> CacheWarmer : triggers
-    JobScheduler --> WorkerPool : submits to
-    JobScheduler --> PriorityQueue : manages
-    
-    PriorityQueue --> JobQueue : contains
-    PriorityQueue --> WarmupJob : stores
-    PriorityQueueHeap --> JobQueue : heap operations
-    
-    JobQueue --> WarmupJob : wraps
-    WarmupStrategy --> WarmupJob : contains
-    DistributedCacheJob --> CacheJobType : typed by
-    CacheWarmingConfig --> CacheWarmingMode : configured by
-
-    %% Styling
-    classDef managerClass fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
-    classDef workerClass fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    classDef jobClass fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
-    classDef componentClass fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
-    classDef configClass fill:#fce4ec,stroke:#e91e63,stroke-width:2px
-    classDef interfaceClass fill:#fff8e1,stroke:#ffc107,stroke-width:2px
-    classDef enumClass fill:#f1f8e9,stroke:#8bc34a,stroke-width:2px
-    
 ```
 
 ### Job/Worker Sequence Flow
