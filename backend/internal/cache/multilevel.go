@@ -19,22 +19,38 @@ type Cache interface {
 }
 
 type MultiLevelCache struct {
-	l1 *MemoryCache 
-	l2 *RedisCache  
+	l1             *MemoryCache
+	l2             *RedisCache
+	metrics        *CacheMetrics
+	circuitBreaker *CircuitBreaker
+	warmer         *CacheWarmer
 }
 
 func NewMultiLevelCache(redisCache *RedisCache) *MultiLevelCache {
-	return &MultiLevelCache{
-		l1: NewMemoryCache(),
-		l2: redisCache,
+	mlc := &MultiLevelCache{
+		l1:             NewMemoryCache(),
+		l2:             redisCache,
+		metrics:        NewCacheMetrics(),
+		circuitBreaker: NewCircuitBreaker(DefaultCircuitBreakerConfig()),
 	}
+
+	mlc.warmer = NewCacheWarmer(mlc, nil)
+
+	return mlc
 }
 
 func (c *MultiLevelCache) Set(key string, value interface{}, ttl time.Duration) error {
 	c.l1.Set(key, value, ttl)
+	c.metrics.RecordSet()
 
 	if c.l2 != nil {
-		return c.l2.Set(key, value, ttl)
+		err := c.circuitBreaker.Execute(func() error {
+			return c.l2.Set(key, value, ttl)
+		})
+		if err != nil {
+			c.metrics.RecordError()
+			return nil
+		}
 	}
 
 	return nil
@@ -42,25 +58,47 @@ func (c *MultiLevelCache) Set(key string, value interface{}, ttl time.Duration) 
 
 func (c *MultiLevelCache) Get(key string, dest interface{}) error {
 	if value, found := c.l1.Get(key); found {
+		c.metrics.RecordHit()
 		return copyValue(value, dest)
 	}
 
 	if c.l2 != nil {
-		err := c.l2.Get(key, dest)
-		if err == nil {
-			c.l1.Set(key, dest, 5*time.Minute) 
+		var l2Hit bool
+		err := c.circuitBreaker.Execute(func() error {
+			err := c.l2.Get(key, dest)
+			if err == nil {
+				l2Hit = true
+				c.l1.Set(key, dest, 5*time.Minute)
+			}
+			return err
+		})
+
+		if err == nil && l2Hit {
+			c.metrics.RecordHit()
+			return nil
 		}
-		return err
+
+		if err != nil && err != ErrCacheMiss {
+			c.metrics.RecordError()
+		}
 	}
 
+	c.metrics.RecordMiss()
 	return ErrCacheMiss
 }
 
 func (c *MultiLevelCache) Delete(key string) error {
 	c.l1.Delete(key)
+	c.metrics.RecordDelete()
 
 	if c.l2 != nil {
-		return c.l2.Delete(key)
+		err := c.circuitBreaker.Execute(func() error {
+			return c.l2.Delete(key)
+		})
+		if err != nil {
+			c.metrics.RecordError()
+		}
+		return err
 	}
 
 	return nil
@@ -90,7 +128,16 @@ func (c *MultiLevelCache) Exists(key string) (bool, error) {
 
 func (c *MultiLevelCache) Stats() map[string]interface{} {
 	stats := map[string]interface{}{
-		"l1": c.l1.Stats(),
+		"l1":      c.l1.Stats(),
+		"metrics": c.metrics.GetStats(),
+	}
+
+	stats["hit_rate_percent"] = c.metrics.HitRate()
+
+	stats["circuit_breaker"] = c.circuitBreaker.GetStats()
+
+	if c.warmer != nil {
+		stats["warmer"] = c.warmer.GetStats()
 	}
 
 	if c.l2 != nil {
@@ -109,11 +156,27 @@ func (c *MultiLevelCache) Health() error {
 }
 
 func (c *MultiLevelCache) Close() error {
+	if c.warmer != nil {
+		c.warmer.Stop()
+	}
+
 	if c.l2 != nil {
 		return c.l2.Close()
 	}
 
 	return nil
+}
+
+func (c *MultiLevelCache) GetWarmer() *CacheWarmer {
+	return c.warmer
+}
+
+func (c *MultiLevelCache) GetMetrics() *CacheMetrics {
+	return c.metrics
+}
+
+func (c *MultiLevelCache) GetCircuitBreaker() *CircuitBreaker {
+	return c.circuitBreaker
 }
 
 func copyValue(src, dest interface{}) error {
