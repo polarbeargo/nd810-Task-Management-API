@@ -9,29 +9,29 @@ import (
 )
 
 type CacheHandler struct {
-	CacheWarmer *cache.IntegratedCacheWarmer
-	Cache       cache.Cache
+	CacheManager *cache.UnifiedCacheManager
+	Cache        cache.Cache
 }
 
-func NewCacheHandler(cacheWarmer *cache.IntegratedCacheWarmer, cacheInstance cache.Cache) *CacheHandler {
+func NewCacheHandler(cacheManager *cache.UnifiedCacheManager, cacheInstance cache.Cache) *CacheHandler {
 	return &CacheHandler{
-		CacheWarmer: cacheWarmer,
-		Cache:       cacheInstance,
+		CacheManager: cacheManager,
+		Cache:        cacheInstance,
 	}
 }
 
 // WarmCache triggers immediate cache warming
 // POST /cache/warm
 func (h *CacheHandler) WarmCache(c *gin.Context) {
-	if h.CacheWarmer == nil {
+	if h.CacheManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "Cache warming not available",
-			"message": "Cache warmer is not initialized",
+			"message": "Cache manager is not initialized",
 		})
 		return
 	}
 
-	err := h.CacheWarmer.WarmupCache()
+	err := h.CacheManager.WarmupCache()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to trigger cache warming",
@@ -64,10 +64,10 @@ func (h *CacheHandler) EnqueueWarmupJob(c *gin.Context) {
 		return
 	}
 
-	if h.CacheWarmer == nil {
+	if h.CacheManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "Cache warming not available",
-			"message": "Cache warmer is not initialized",
+			"message": "Cache manager is not initialized",
 		})
 		return
 	}
@@ -80,7 +80,7 @@ func (h *CacheHandler) EnqueueWarmupJob(c *gin.Context) {
 		req.Priority = 5
 	}
 
-	err := h.CacheWarmer.EnqueueWarmupJob(req.Key, req.Data, req.TTL, req.Priority)
+	err := h.CacheManager.EnqueueWarmupJob(req.Key, req.Data, req.TTL, req.Priority)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to enqueue warmup job",
@@ -115,10 +115,10 @@ func (h *CacheHandler) EnqueueBatchJob(c *gin.Context) {
 		return
 	}
 
-	if h.CacheWarmer == nil {
+	if h.CacheManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "Cache warming not available",
-			"message": "Cache warmer is not initialized",
+			"message": "Cache manager is not initialized",
 		})
 		return
 	}
@@ -127,7 +127,7 @@ func (h *CacheHandler) EnqueueBatchJob(c *gin.Context) {
 		req.Priority = 5
 	}
 
-	err := h.CacheWarmer.EnqueueBatchWarmupJob(req.Keys, req.Data, req.Priority)
+	err := h.CacheManager.EnqueueBatchWarmupJob(req.Keys, req.Data, req.Priority)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to enqueue batch job",
@@ -163,10 +163,10 @@ func (h *CacheHandler) EnqueueScheduledJob(c *gin.Context) {
 		return
 	}
 
-	if h.CacheWarmer == nil {
+	if h.CacheManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "Cache warming not available",
-			"message": "Cache warmer is not initialized",
+			"message": "Cache manager is not initialized",
 		})
 		return
 	}
@@ -179,7 +179,7 @@ func (h *CacheHandler) EnqueueScheduledJob(c *gin.Context) {
 		req.Priority = 5
 	}
 
-	err := h.CacheWarmer.EnqueueScheduledWarmup(req.Key, req.Data, req.TTL, req.ProcessAt, req.Priority)
+	err := h.CacheManager.EnqueueScheduledWarmup(req.Key, req.Data, req.TTL, req.ProcessAt, req.Priority)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to enqueue scheduled job",
@@ -255,17 +255,17 @@ func (h *CacheHandler) EvictCacheKey(c *gin.Context) {
 // GetCacheHealth returns detailed cache warming system health
 // GET /cache/health
 func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
-	if h.CacheWarmer == nil {
+	if h.CacheManager == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "unavailable",
-			"message": "Cache warmer is not initialized",
+			"message": "Cache manager is not initialized",
 			"healthy": false,
 		})
 		return
 	}
 
-	isRunning := h.CacheWarmer.IsRunning()
-	metrics := h.CacheWarmer.GetMetrics()
+	isRunning := h.CacheManager.IsRunning()
+	metrics := h.CacheManager.GetMetrics()
 
 	health := gin.H{
 		"status":  "healthy",
@@ -277,7 +277,7 @@ func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 		health["status"] = "degraded"
 	}
 
-	queueSizes, err := h.CacheWarmer.GetQueueSizes()
+	queueSizes, err := h.CacheManager.GetQueueSizes()
 	if err == nil {
 		health["queue_sizes"] = queueSizes
 	}
@@ -294,10 +294,10 @@ func (h *CacheHandler) GetCacheStats(c *gin.Context) {
 		stats["cache"] = h.Cache.Stats()
 	}
 
-	if h.CacheWarmer != nil {
-		stats["cache_warming"] = h.CacheWarmer.GetMetrics()
+	if h.CacheManager != nil {
+		stats["cache_warming"] = h.CacheManager.GetMetrics()
 
-		queueSizes, err := h.CacheWarmer.GetQueueSizes()
+		queueSizes, err := h.CacheManager.GetQueueSizes()
 		if err == nil {
 			stats["queue_sizes"] = queueSizes
 		}
