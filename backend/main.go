@@ -89,6 +89,18 @@ func initializeApplication(cfg *config.Config) (*Application, error) {
 
 	log.Println("✅ Database connected and configured")
 
+	// Run database migrations automatically
+	migrationConfig := &repositories.MigrationConfig{
+		MigrationsPath: "file://migrations",
+		DBName:         cfg.Database.Name,
+		MaxRetries:     3,
+		RetryDelay:     2 * time.Second,
+	}
+
+	if err := repositories.RunMigrations(db, migrationConfig); err != nil {
+		return nil, fmt.Errorf("database migration failed: %w", err)
+	}
+
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:         cfg.GetRedisAddr(),
 		Password:     cfg.Redis.Password,
