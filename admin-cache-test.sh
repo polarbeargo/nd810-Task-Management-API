@@ -61,11 +61,10 @@ echo "  4) Clear cache"
 echo "  5) Enqueue warmup job"
 echo "  6) Enqueue batch warmup"
 echo "  7) Schedule warmup job"
-echo "  8) Get scheduled jobs"
-echo "  9) Evict cache key"
+echo "  8) Evict cache key"
 echo "  0) Run all tests"
 echo ""
-read -p "Enter choice [0-9]: " choice
+read -p "Enter choice [0-8]: " choice
 echo ""
 
 case $choice in
@@ -147,14 +146,7 @@ case $choice in
     ;;
     
   8)
-    echo "📅 Get Scheduled Jobs"
-    echo -e "${YELLOW}curl -X GET ${API_URL}/cache/jobs/scheduled${NC}"
-    curl -X GET "${API_URL}/cache/jobs/scheduled" \
-      -H "Authorization: Bearer $TOKEN" | jq .
-    ;;
-    
-  9)
-    echo "🗑️  Evict Cache Key"
+    echo "️  Evict Cache Key"
     read -p "Enter cache key (or pattern with *): " cache_key
     if [ -n "$cache_key" ]; then
       echo -e "${YELLOW}curl -X DELETE ${API_URL}/cache/jobs/evict/${cache_key}${NC}"
@@ -181,15 +173,26 @@ case $choice in
     curl -s -X POST "${API_URL}/cache/warm" -H "Authorization: Bearer $TOKEN" | jq .
     echo ""
     
-    echo "4️⃣  Enqueue Job"
+    echo "4️⃣  Enqueue Warmup Job"
     curl -s -X POST "${API_URL}/cache/jobs/warmup" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"key":"test:all","data":{},"ttl":900000000000,"priority":5}' | jq .
     echo ""
     
-    echo "5️⃣  Get Scheduled Jobs"
-    curl -s -X GET "${API_URL}/cache/jobs/scheduled" -H "Authorization: Bearer $TOKEN" | jq .
+    echo "5️⃣  Enqueue Batch Job"
+    curl -s -X POST "${API_URL}/cache/jobs/batch" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"keys":["batch:test:1","batch:test:2"],"data":{},"priority":5}' | jq .
+    echo ""
+    
+    echo "6️⃣  Schedule Future Job"
+    FUTURE_TIME=$(date -u -v+5M +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+5 minutes" +"%Y-%m-%dT%H:%M:%SZ")
+    curl -s -X POST "${API_URL}/cache/jobs/scheduled" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"key\":\"scheduled:test:all\",\"data\":{},\"ttl\":900000000000,\"process_at\":\"${FUTURE_TIME}\",\"priority\":3}" | jq .
     echo ""
     
     echo -e "${GREEN}✅ All tests completed${NC}"

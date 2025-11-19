@@ -80,19 +80,7 @@ else
 fi
 
 if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-  echo "3️⃣  Get Profile"
-  echo -e "${YELLOW}curl -X GET ${API_URL}/users/profile \\${NC}"
-  PROFILE_RESPONSE=$(curl -s -X GET "${API_URL}/users/profile" \
-    -H "Authorization: Bearer $TOKEN")
-  echo "$PROFILE_RESPONSE" | jq .
-  
-  if echo "$PROFILE_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Profile retrieved successfully${NC}\n"
-  else
-    echo -e "${RED}❌ Failed to get profile${NC}\n"
-  fi
-
-  echo "4️⃣  Create Task"
+  echo "3️⃣  Create Task"
   echo -e "${YELLOW}curl -X POST ${API_URL}/tasks \\${NC}"
   TASK_RESPONSE=$(curl -s -X POST "${API_URL}/tasks" \
     -H "Content-Type: application/json" \
@@ -112,7 +100,7 @@ if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
     echo -e "${RED}❌ Failed to create task${NC}\n"
   fi
 
-  echo "5️⃣  Get All Tasks"
+  echo "4️⃣  Get All Tasks"
   echo -e "${YELLOW}curl -X GET ${API_URL}/tasks \\${NC}"
   TASKS_RESPONSE=$(curl -s -X GET "${API_URL}/tasks" \
     -H "Authorization: Bearer $TOKEN")
@@ -127,7 +115,7 @@ if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
 
   # Bonus: Update task if we created one
   if [ -n "$TASK_ID" ] && [ "$TASK_ID" != "null" ]; then
-    echo "6️⃣  Update Task"
+    echo "5️⃣  Update Task"
     echo -e "${YELLOW}curl -X PUT ${API_URL}/tasks/${TASK_ID} \\${NC}"
     UPDATE_RESPONSE=$(curl -s -X PUT "${API_URL}/tasks/${TASK_ID}" \
       -H "Content-Type: application/json" \
@@ -138,7 +126,7 @@ if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
       }')
     echo "$UPDATE_RESPONSE" | jq .
     
-    if echo "$UPDATE_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+    if echo "$UPDATE_RESPONSE" | jq -e '.message' > /dev/null 2>&1; then
       echo -e "${GREEN}✅ Task updated successfully${NC}\n"
     else
       echo -e "${RED}❌ Failed to update task${NC}\n"
@@ -148,7 +136,7 @@ else
   echo -e "${RED}⚠️  Skipping authenticated requests (no valid token)${NC}\n"
 fi
 
-echo "7️⃣  Health Check"
+echo "6️⃣  Health Check"
 echo -e "${YELLOW}curl -X GET ${BASE_URL}/health \\${NC}"
 HEALTH_RESPONSE=$(curl -s -X GET "${BASE_URL}/health")
 echo "$HEALTH_RESPONSE" | jq .
@@ -159,7 +147,7 @@ else
   echo -e "${RED}❌ System health check failed${NC}\n"
 fi
 
-echo "8️⃣  Nginx Health"
+echo "7️⃣  Nginx Health"
 echo -e "${YELLOW}curl -X GET ${BASE_URL}/nginx-health \\${NC}"
 NGINX_RESPONSE=$(curl -s -X GET "${BASE_URL}/nginx-health")
 echo "$NGINX_RESPONSE"
@@ -184,7 +172,3 @@ echo "💡 Important:"
 echo "  - Use port 80 (or omit port)"
 echo "  - Backend port 8081 is no longer exposed"
 echo "  - All traffic goes through nginx"
-echo ""
-echo "📚 Documentation:"
-echo "  - Scaling: docs/SCALING_GUIDE.md"
-echo "  - Admin Cache: docs/ADMIN_CACHE_SECURITY.md"

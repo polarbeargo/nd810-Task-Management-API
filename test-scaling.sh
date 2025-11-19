@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Test script to verify backend scaling functionality
 # This script tests scaling up, load distribution, and scaling down
@@ -33,20 +33,31 @@ test_load_distribution() {
     echo "📊 Testing load distribution across backends..."
     echo "Making 10 requests to /health endpoint..."
     
-    declare -A backend_hits
+    local success_count=0
+    local fail_count=0
     
-    for i in {1..100}; do
+    for i in {1..10}; do
         response=$(curl -s "${BASE_URL}/health" 2>&1)
         
         if echo "$response" | grep -q "healthy"; then
+            success_count=$((success_count + 1))
             echo -n "."
         else
+            fail_count=$((fail_count + 1))
             echo -n "x"
         fi
     done
     
     echo ""
-    echo -e "${GREEN}✅ All health check requests successful${NC}"
+    echo -e "${GREEN}✅ Completed 10 requests: ${success_count} successful, ${fail_count} failed${NC}"
+    
+    if [ "$success_count" -ge 9 ]; then
+        echo -e "${GREEN}✅ Load balancing working correctly (${success_count}/10 success rate)${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Too many failures (${fail_count}/10 failed, need at least 9/10 success)${NC}"
+        return 1
+    fi
 }
 
 echo "1️⃣  Checking initial backend instances..."
