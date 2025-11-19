@@ -215,6 +215,8 @@ Run test script:
 ./api-test.sh
 ```
 
+![Animated preview — images/7.gif](images/7.gif)
+
 ### Task Operations
 
 ```bash
@@ -371,7 +373,7 @@ Run test script:
 ./admin-cache-test.sh
 ```
 
-![Animated preview — images/6.gif](images/6.gif). 
+![Animated preview — images/6.gif](images/6.gif)
 
 Run the comprehensive scaling test:
 
