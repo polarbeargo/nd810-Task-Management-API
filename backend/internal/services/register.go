@@ -124,10 +124,9 @@ func (s *RegisterServiceImpl) RegisterUser(db *gorm.DB, req RegistrationRequest)
 		return nil, err
 	}
 
-	// Temporarily disable preload for debugging
-	// if err := db.Preload("Roles").First(&user, user.ID).Error; err != nil {
-	// 	return nil, err
-	// }
+	if err := db.Preload("Roles").First(&user, user.ID).Error; err != nil {
+		return nil, err
+	}
 
 	return &user, nil
 }
