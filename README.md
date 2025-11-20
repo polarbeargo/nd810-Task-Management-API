@@ -1,6 +1,6 @@
 # Task Management API
 
-A enterprise-grade Task Management API, featuring advanced caching, authentication, authorization, and monitoring capabilities. Startar code from [Udacity Taskify : Task Management API](https://github.com/udacity/cd14130-starter/tree/main/starter).
+An enterprise-grade Task Management API, featuring advanced caching, authentication, authorization, and monitoring capabilities. Startar code from [Udacity Taskify : Task Management API](https://github.com/udacity/cd14130-starter/tree/main/starter).
 
 ## Software Stack
 
@@ -1021,7 +1021,7 @@ The unified cache management system supports five intelligent job types for cach
 
 | Job Type | API Function | Priority Range | Description | Use Cases |
 |----------|-------------|----------------|-------------|-----------|
-| **1. Warmup Jobs** | `EnqueueWarmupJob(key, data, ttl, priority)` | 1-10 (1=immediate) | Core intelligence for individual cache entries with smart TTL management. Priority-based execution with automatic retry logic and exponential backoff. | • Pre-load user profiles on login<br/>• Cache critical configuration data<br/>• Warm frequently accessed resources |
+| **1. Warmup Jobs** | `EnqueueWarmupJob(key, data, ttl, priority)` | 1-10 (1=immediate) | Core intelligence for individual cache entries with smart TTL management. Priority-based execution with automatic retry logic and linear backoff. | • Pre-load user profiles on login<br/>• Cache critical configuration data<br/>• Warm frequently accessed resources |
 | **2. Batch Jobs** | `EnqueueBatchWarmupJob(keys, data, priority)` | 1-10 | Efficiency at scale for bulk operations on related data sets. Atomic processing ensures consistency with reduced network overhead for better performance. | • Cache entire user session data<br/>• Pre-warm product catalog pages<br/>• Bulk import initial data sets |
 | **3. Scheduled Jobs** | `EnqueueScheduledWarmup(key, data, ttl, processAt, priority)` | 1-10 | Time-based execution using Unix timestamp scoring. Perfect for cache refresh cycles and maintenance windows with delayed queue management and automatic promotion. | • Scheduled nightly cache refresh<br/>• Pre-warm before traffic spikes<br/>• Periodic data synchronization |
 | **4. Validation Jobs** | `EnqueueValidationJob(key, expectedData, priority)` | 1-10 | Data integrity checks against expected values. Cache consistency verification with automatic re-warming when validation fails. Self-healing capabilities for corrupted data. | • Verify critical cache accuracy<br/>• Detect cache corruption<br/>• Ensure data consistency |
